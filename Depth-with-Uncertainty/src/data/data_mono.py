@@ -176,7 +176,7 @@ class DataLoadPreprocess(Dataset):
         else:
             with open(config.filenames_file, 'r') as f:
                 self.filenames = f.readlines()
-                num_val_samples = int(len(self.filenames) / 100 * 70)
+                num_val_samples = int(len(self.filenames) / 100 * 80)
                 if mode == 'train':
                     self.filenames = self.filenames[:num_val_samples]
                 elif mode == 'eval':
