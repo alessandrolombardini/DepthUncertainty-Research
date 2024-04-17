@@ -1,0 +1,5 @@
+srun --job-name=training -N 1 --gres=gpu:1 --mem-per-cpu=20G --container-mounts=/raid/ropert/alombard:/workspace --container-workdir=/workspace/Supervised-Single-View-Depth-Learning-with-Uncertainty --container-image=nvcr.io#nvidia/pytorch:23.09-py3 sh train.sh
+
+
+srun --output=log/aleatoric_gaussian.out --container-mounts=/raid/ropert/alombard:/workspace --container-workdir=/workspace/Supervised-Single-View-Depth-Learning-with-Uncertainty --container-image=nvcr.io#nvidia/pytorch:23.09-py3 sh train.sh
+
