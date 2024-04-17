@@ -7,7 +7,7 @@ parser = argparse.ArgumentParser()
 # Environment
 parser.add_argument("--is_train", type=strtobool, default='true')
 parser.add_argument("--tensorboard", type=strtobool, default='true')
-parser.add_argument("--num_gpu", type=int, default=0)
+parser.add_argument("--num_gpu", type=int, default=1)
 parser.add_argument("--num_work", type=int, default=8)
 parser.add_argument("--exp_dir", type=str, default="../results")
 parser.add_argument("--exp_load", type=str, default=None)
@@ -16,7 +16,7 @@ parser.add_argument("--exp_load", type=str, default=None)
 parser.add_argument("--data_dir", type=str, default="/mnt/sda")
 parser.add_argument("--data_name", type=str, default="kitti", choices=('kitti'))
 parser.add_argument('--batch_size', type=int, default=8)
-parser.add_argument('--rgb_range', type=int, default=3)         # !
+parser.add_argument('--rgb_range', type=int, default=255)         # !
 
 # Model
 parser.add_argument('--uncertainty', default='normal', choices=('normal', 'aleatoric.gaussian', 'aleatoric.tstudent', 
@@ -27,9 +27,9 @@ parser.add_argument('--drop_rate', type=float, default=0.2)
 parser.add_argument('--in_channels', type=int, default=3)       # !
 
 # Train
-parser.add_argument("--epochs", type=int, default=200) 
+parser.add_argument("--epochs", type=int, default=50) 
 parser.add_argument("--lr", type=float, default=1e-3)
-parser.add_argument("--decay", type=str, default='50-100-150')
+parser.add_argument("--decay", type=str, default='15-30-40')
 parser.add_argument("--gamma", type=float, default=0.5)
 parser.add_argument("--optimizer", type=str, default='adam', choices=('sgd', 'adam', 'rmsprop'))
 parser.add_argument("--weight_decay", type=float, default=1e-3)
