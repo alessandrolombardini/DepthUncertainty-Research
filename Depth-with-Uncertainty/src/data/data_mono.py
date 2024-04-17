@@ -59,7 +59,7 @@ class DepthDataLoader(object):
 
         Args:
             config (dict): Config dictionary. Refer to utils/config.py
-            mode (str): "train" or "online_eval"
+            mode (str): "train" or "test"
             device (str, optional): Device to load the data on. Defaults to 'cpu'.
             transform (torchvision.transforms, optional): Transform to apply to the data. Defaults to None.
         """
@@ -75,48 +75,31 @@ class DepthDataLoader(object):
         #    transform = preprocessing_transforms(mode, size=img_size)
 
         if mode == 'train':
-
-            Dataset = DataLoadPreprocess  
-            self.training_samples = Dataset(self.config, mode, transform=transform, device=device)
-
-            #if config.distributed:
-            #    self.train_sampler = torch.utils.data.distributed.DistributedSampler(
-            #        self.training_samples)
-            #else:
-            self.train_sampler = None
-
+            self.training_samples = DataLoadPreprocess(self.config, mode, transform=transform, device=device)
             self.data = DataLoader(self.training_samples,
                                    batch_size=config.batch_size,
-                                   shuffle=False,
+                                   shuffle=True,
                                    num_workers=config.workers,
                                    pin_memory=True,
                                    persistent_workers=True,
-                                #    prefetch_factor=2,
-                                   sampler=self.train_sampler)
-
-        elif mode == 'online_eval':
-            self.testing_samples = DataLoadPreprocess(
-                config, mode, transform=transform)
-            if config.distributed:  # redundant. here only for readability and to be more explicit
-                # Give whole test set to all processes (and report evaluation only on one) regardless
-                self.eval_sampler = None
-            else:
-                self.eval_sampler = None
-            self.data = DataLoader(self.testing_samples, 1,
-                                   shuffle=kwargs.get("shuffle_test", False),
-                                   num_workers=1,
+                                   #prefetch_factor=2,
+                                   sampler=None)
+        elif mode == 'eval':
+            self.testing_samples = DataLoadPreprocess(config, mode, transform=transform, device=device)
+            self.data = DataLoader(self.testing_samples, 
+                                   batch_size=config.batch_size,
+                                   num_workers=config.workers,
+                                   shuffle=False,
                                    pin_memory=False,
-                                   sampler=self.eval_sampler)
-
+                                   sampler=None)
         elif mode == 'test':
-            self.testing_samples = DataLoadPreprocess(
-                config, mode, transform=transform)
-            self.data = DataLoader(self.testing_samples,
-                                   1, shuffle=False, num_workers=1)
-
+            self.testing_samples = DataLoadPreprocess(config, mode, transform=transform, device=device)
+            self.data = DataLoader(self.testing_samples, 
+                                   batch_size=config.batch_size,
+                                   num_workers=config.workers,
+                                   shuffle=False)
         else:
-            print(
-                'mode should be one of \'train, test, online_eval\'. Got {}'.format(mode))
+            print('Mode should be one of \'train, test, test\'. Got {}'.format(mode))
 
 
 def repetitive_roundrobin(*iterables):
@@ -184,20 +167,25 @@ class ImReader:
 
 
 class DataLoadPreprocess(Dataset):
-    def __init__(self, config, mode, transform=None, is_for_online_eval=False, **kwargs):
+    def __init__(self, config, mode, transform=None, is_for_test=False, **kwargs):
         self.config = config
         
-        if mode == 'online_eval':
+        if mode == 'test':
             with open(config.filenames_file_eval, 'r') as f:
                 self.filenames = f.readlines()
         else:
             with open(config.filenames_file, 'r') as f:
                 self.filenames = f.readlines()
+                num_val_samples = int(len(self.filenames) / 100 * 70)
+                if mode == 'train':
+                    self.filenames = self.filenames[:num_val_samples]
+                elif mode == 'eval':
+                    self.filenames = self.filenames[num_val_samples:]
 
         self.mode = mode
         self.transform = transform
         self.to_tensor = ToTensor(mode)
-        self.is_for_online_eval = is_for_online_eval
+        self.is_for_test = is_for_test
 #        if config.use_shared_dict:
 #            self.reader = CachedReader(config.shared_dict)
 #        else:
@@ -232,71 +220,43 @@ class DataLoadPreprocess(Dataset):
                     (left_margin, top_margin, left_margin + 1216, top_margin + 352))
                 image = image.crop(
                     (left_margin, top_margin, left_margin + 1216, top_margin + 352))
-
-            # Avoid blank boundaries due to pixel registration?
-            # Train images have white border. Test images have black border.
-            #if self.config.dataset == 'nyu' and self.config.avoid_boundary:
-                # print("Avoiding Blank Boundaries!")
-                # We just crop and pad again with reflect padding to original size
-                # original_size = image.size
-            #    crop_params = get_white_border(np.array(image, dtype=np.uint8))
-            #    image = image.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-            #    depth_gt = depth_gt.crop((crop_params.left, crop_params.top, crop_params.right, crop_params.bottom))
-
-                # Use reflect padding to fill the blank
-            #    image = np.array(image)
-            #    image = np.pad(image, ((crop_params.top, h - crop_params.bottom), (crop_params.left, w - crop_params.right), (0, 0)), mode='reflect')
-            #    image = Image.fromarray(image)
-
-            #    depth_gt = np.array(depth_gt)
-            #    depth_gt = np.pad(depth_gt, ((crop_params.top, h - crop_params.bottom), (crop_params.left, w - crop_params.right)), 'constant', constant_values=0)
-            #    depth_gt = Image.fromarray(depth_gt)
-
-
             if self.config.do_random_rotate and (self.config.aug):
                 random_angle = (random.random() - 0.5) * 2 * self.config.degree
                 image = self.rotate_image(image, random_angle)
                 depth_gt = self.rotate_image(
                     depth_gt, random_angle, flag=Image.NEAREST)
 
+
             image = np.asarray(image, dtype=np.float32) / 255.0
             depth_gt = np.asarray(depth_gt, dtype=np.float32)
             depth_gt = np.expand_dims(depth_gt, axis=2)
-
-            if self.config.dataset == 'nyu':
-                depth_gt = depth_gt / 1000.0
-            else:
-                depth_gt = depth_gt / 256.0
+            depth_gt = depth_gt / 256.0
 
             if self.config.aug and (self.config.random_crop):
-                image, depth_gt = self.random_crop(
-                    image, depth_gt, self.config.input_height, self.config.input_width)
-            
+                image, depth_gt = self.random_crop(image, depth_gt, self.config.input_height, self.config.input_width)
             if self.config.aug and self.config.random_translate:
-                # print("Random Translation!")
                 image, depth_gt = self.random_translate(image, depth_gt, self.config.max_translation)
 
             image, depth_gt = self.train_preprocess(image, depth_gt)
-            mask = np.logical_and(depth_gt > self.config.min_depth,
-                                  depth_gt < self.config.max_depth).squeeze()[None, ...]
-            sample = {'image': image, 'depth': depth_gt, 'focal': focal,
-                      'mask': mask, **sample}
+            mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
+            sample = {'image': image, 
+                      'depth': depth_gt, 
+                      'focal': focal,
+                      'mask': mask, 
+                      **sample}
 
         else:
-            if self.mode == 'online_eval':
+            if self.mode == 'test':
                 data_path = self.config.data_path_eval
             else:
                 data_path = self.config.data_path
 
-            image_path = os.path.join(
-                data_path, remove_leading_slash(sample_path.split()[0]))
-            image = np.asarray(self.reader.open(image_path),
-                               dtype=np.float32) / 255.0
+            image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
+            image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
 
-            if self.mode == 'online_eval':
+            if self.mode == 'test':
                 gt_path = self.config.gt_path_eval
-                depth_path = os.path.join(
-                    gt_path, remove_leading_slash(sample_path.split()[1]))
+                depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
                 has_valid_depth = False
                 try:
                     depth_gt = self.reader.open(depth_path)
@@ -308,13 +268,8 @@ class DataLoadPreprocess(Dataset):
                 if has_valid_depth:
                     depth_gt = np.asarray(depth_gt, dtype=np.float32)
                     depth_gt = np.expand_dims(depth_gt, axis=2)
-                    if self.config.dataset == 'nyu':
-                        depth_gt = depth_gt / 1000.0
-                    else:
-                        depth_gt = depth_gt / 256.0
-
-                    mask = np.logical_and(
-                        depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
+                    depth_gt = depth_gt / 256.0
+                    mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
                 else:
                     mask = False
 
@@ -325,11 +280,11 @@ class DataLoadPreprocess(Dataset):
                 left_margin = int((width - 1216) / 2)
                 image = image[top_margin:top_margin + 352,
                               left_margin:left_margin + 1216, :]
-                if self.mode == 'online_eval' and has_valid_depth:
+                if self.mode == 'test' and has_valid_depth:
                     depth_gt = depth_gt[top_margin:top_margin +
                                         352, left_margin:left_margin + 1216, :]
 
-            if self.mode == 'online_eval':
+            if self.mode == 'test':
                 sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth,
                           'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1],
                           'mask': mask}

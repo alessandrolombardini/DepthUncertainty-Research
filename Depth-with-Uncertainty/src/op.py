@@ -52,7 +52,6 @@ class Operator:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                break
             # Feedback
             print('[Epoch: {:03d}/{:03d}] Loss: {:5f}'.format(epoch, self.config.epochs, loss.item()))
             if self.tensorboard:
@@ -67,15 +66,15 @@ class Operator:
                                                 epoch)
                 self.summary_writer.add_scalar('train/lr',
                                                self.optimizer.get_lr(), epoch)
-            # Test model & save model
+            # eval model & save model
             self.optimizer.schedule()
             self.save(self.ckpt, epoch)
             if (epoch + 1) % 5 == 0: 
-                self.test(data_loader, 'train', epoch)
+                self.eval(data_loader, 'train', epoch)
                 if self.uncertainty != "normal":
-                    psnr, rmse, ause = self.test(data_loader, 'test', epoch)
+                    psnr, rmse, ause = self.eval(data_loader, 'eval', epoch)
                 else:
-                    psnr, rmse = self.test(data_loader, 'test', epoch)
+                    psnr, rmse = self.eval(data_loader, 'eval', epoch)
 
                 if best_ause is None or ause < best_ause:
                     best_psnr = psnr
@@ -83,15 +82,17 @@ class Operator:
                     if self.uncertainty != "normal":
                         best_ause = ause
 
+
         if self.uncertainty != "normal":
             print("Best PSNR: {:5f}, Best RMSE: {:5f}, Best AUSE: {:5f}".format(best_psnr, best_rmse, best_ause))
         else:
             print("Best PSNR: {:5f}, Best RMSE: {:5f}".format(best_psnr, best_rmse))
+        
         self.summary_writer.close()
 
 
 
-    def test(self, data_loader, label, epoch):
+    def eval(self, data_loader, label, epoch):
         psnrs = []
         rmses = []
         auses = []
@@ -128,7 +129,6 @@ class Operator:
                     #current_auce = compute_auce(batch_input, batch_results)
                     #auces.append(current_auce)
                     #total_auce += current_auce
-                break
             # Feedback      
             if self.uncertainty != "normal":
                 #print('[Epoch: {:03d}/{:03d}][{}] PSNR {:5f}, RMSE {:5f}, AUSE {:5f}, AUCE {:5f}'
@@ -149,15 +149,15 @@ class Operator:
                             total_rmse/len(rmses)))
                 
             if self.tensorboard:
-                if label == 'test':
-                    self.summary_writer.add_images("eval/test/input_img",
+                if label == 'eval':
+                    self.summary_writer.add_images("eval/eval/input_img",
                                                     batch_input, 
                                                     epoch)
                     if self.uncertainty != 'normal':
-                        self.summary_writer.add_images("eval/test/mean_img",
+                        self.summary_writer.add_images("eval/eval/mean_img",
                                                         torch.clamp(batch_results['mean'], 0., 1.),
                                                         epoch)
-                        self.summary_writer.add_images("eval/test/var_img",
+                        self.summary_writer.add_images("eval/eval/var_img",
                                                     torch.clamp(batch_results['var'], 0., 1.), #?
                                                     epoch)
                 self.summary_writer.add_scalar('eval/{}/mean_psnr'.format(label),
@@ -184,8 +184,6 @@ class Operator:
         ckpt.load()               # load ckpt
         self.model.load(ckpt)     # load model
         self.optimizer.load(ckpt) # load optimizer
-
-
 
     def save(self, ckpt, epoch):
         ckpt.save(epoch)             # save ckpt: global_step, last_epoch
