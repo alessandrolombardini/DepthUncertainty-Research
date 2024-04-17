@@ -9,6 +9,7 @@ def main(config):
     # Load data_loader
     data_loader = get_dataloader(config)
     print('==>>> Total training batch number: {}'.format(len(data_loader['train'])))
+    print('==>>> Total evaluating batch number: {}'.format(len(data_loader['eval'])))
     print('==>>> Total testing batch number: {}'.format(len(data_loader['test'])))
     # Define checkpoint
     check_point = Checkpoint(config)

@@ -178,6 +178,9 @@ class Operator:
             return total_psnr/len(psnrs), total_rmse/len(rmses), total_ause/len(auses) #, total_auce/len(auces)
         else:
             return total_psnr/len(psnrs), total_rmse/len(rmses)
+        
+    def test(self, data_loader):
+        return eval(self, data_loader, 'test', -1)
 
 
     def load(self, ckpt):
