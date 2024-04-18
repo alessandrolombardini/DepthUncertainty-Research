@@ -143,18 +143,17 @@ def remove_leading_slash(s):
     return s
 
 
-class CachedReader:
-    def __init__(self, shared_dict=None):
-        if shared_dict:
-            self._cache = shared_dict
-        else:
-            self._cache = {}
-
-    def open(self, fpath):
-        im = self._cache.get(fpath, None)
-        if im is None:
-            im = self._cache[fpath] = Image.open(fpath)
-        return im
+#class CachedReader:
+#    def __init__(self, shared_dict=None):
+#        if shared_dict:
+#            self._cache = shared_dict
+#        else:
+#            self._cache = {}
+#    def open(self, fpath):
+#        im = self._cache.get(fpath, None)
+#        if im is None:
+#            im = self._cache[fpath] = Image.open(fpath)
+#        return im
 
 
 class ImReader:
@@ -216,15 +215,13 @@ class DataLoadPreprocess(Dataset):
                 width = image.width
                 top_margin = int(height - 352)
                 left_margin = int((width - 1216) / 2)
-                depth_gt = depth_gt.crop(
-                    (left_margin, top_margin, left_margin + 1216, top_margin + 352))
-                image = image.crop(
-                    (left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+            
             if self.config.do_random_rotate and (self.config.aug):
                 random_angle = (random.random() - 0.5) * 2 * self.config.degree
                 image = self.rotate_image(image, random_angle)
-                depth_gt = self.rotate_image(
-                    depth_gt, random_angle, flag=Image.NEAREST)
+                depth_gt = self.rotate_image(depth_gt, random_angle, flag=Image.NEAREST)
 
 
             image = np.asarray(image, dtype=np.float32) / 255.0
@@ -244,56 +241,76 @@ class DataLoadPreprocess(Dataset):
                       'focal': focal,
                       'mask': mask, 
                       **sample}
+        elif self.mode == 'eval':
+            image_path = os.path.join(self.config.data_path, remove_leading_slash(sample_path.split()[0]))
+            depth_path = os.path.join(self.config.gt_path, remove_leading_slash(sample_path.split()[1]))
 
-        else:
-            if self.mode == 'test':
-                data_path = self.config.data_path_eval
-            else:
-                data_path = self.config.data_path
-
-            image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
-            image = np.asarray(self.reader.open(image_path), dtype=np.float32) / 255.0
-
-            if self.mode == 'test':
-                gt_path = self.config.gt_path_eval
-                depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
-                has_valid_depth = False
-                try:
-                    depth_gt = self.reader.open(depth_path)
-                    has_valid_depth = True
-                except IOError:
-                    depth_gt = False
-                    # print('Missing gt for {}'.format(image_path))
-
-                if has_valid_depth:
-                    depth_gt = np.asarray(depth_gt, dtype=np.float32)
-                    depth_gt = np.expand_dims(depth_gt, axis=2)
-                    depth_gt = depth_gt / 256.0
-                    mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
-                else:
-                    mask = False
-
+            image = self.reader.open(image_path)
+            depth_gt = self.reader.open(depth_path)
+            w, h = image.size
+            
             if self.config.do_kb_crop:
-                height = image.shape[0]
-                width = image.shape[1]
+                height = image.height
+                width = image.width
                 top_margin = int(height - 352)
                 left_margin = int((width - 1216) / 2)
-                image = image[top_margin:top_margin + 352,
-                              left_margin:left_margin + 1216, :]
-                if self.mode == 'test' and has_valid_depth:
-                    depth_gt = depth_gt[top_margin:top_margin +
-                                        352, left_margin:left_margin + 1216, :]
+                depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                
+            image = np.asarray(image, dtype=np.float32) / 255.0
+            depth_gt = np.asarray(depth_gt, dtype=np.float32)
+            depth_gt = np.expand_dims(depth_gt, axis=2)
+            depth_gt = depth_gt / 256.0
 
-            if self.mode == 'test':
-                sample = {'image': image, 'depth': depth_gt, 'focal': focal, 'has_valid_depth': has_valid_depth,
-                          'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1],
-                          'mask': mask}
+
+            mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
+            sample = {'image': image, 
+                      'depth': depth_gt, 
+                      'focal': focal,
+                      'mask': mask, 
+                      **sample}
+        elif self.mode == 'test':
+            data_path = self.config.data_path_eval
+            gt_path = self.config.gt_path_eval
+                    
+            image_path = os.path.join(data_path, remove_leading_slash(sample_path.split()[0]))
+            image = self.reader.open(image_path)
+            image = np.asarray(image, dtype=np.float32) / 255.0
+
+            depth_path = os.path.join(gt_path, remove_leading_slash(sample_path.split()[1]))
+            has_valid_depth = False
+            try:
+                depth_gt = self.reader.open(depth_path)
+                has_valid_depth = True
+            except IOError:
+                depth_gt = False
+            
+            if has_valid_depth:
+                depth_gt = np.asarray(depth_gt, dtype=np.float32)
+                depth_gt = np.expand_dims(depth_gt, axis=2)
+                depth_gt = depth_gt / 256.0
+                mask = np.logical_and(depth_gt >= self.config.min_depth, depth_gt <= self.config.max_depth).squeeze()[None, ...]
             else:
-                sample = {'image': image, 'focal': focal}
+                mask = False
+
+            if self.config.do_kb_crop:
+                height = image.height
+                width = image.width
+                top_margin = int(height - 352)
+                left_margin = int((width - 1216) / 2)
+                depth_gt = depth_gt.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                image = image.crop((left_margin, top_margin, left_margin + 1216, top_margin + 352))
+                
+            sample = {'image': image, 
+                      'depth': depth_gt, 
+                      'focal': focal, 
+                      'has_valid_depth': has_valid_depth,
+                      'image_path': sample_path.split()[0], 
+                      'depth_path': sample_path.split()[1],
+                      'mask': mask}
 
         if (self.mode == 'train') or ('has_valid_depth' in sample and sample['has_valid_depth']):
-            mask = np.logical_and(depth_gt > self.config.min_depth,
-                                  depth_gt < self.config.max_depth).squeeze()[None, ...]
+            mask = np.logical_and(depth_gt > self.config.min_depth, depth_gt < self.config.max_depth).squeeze()[None, ...]
             sample['mask'] = mask
 
         if self.transform:
@@ -301,7 +318,9 @@ class DataLoadPreprocess(Dataset):
 
         sample = self.postprocess(sample)
         sample['dataset'] = self.config.dataset
-        sample = {**sample, 'image_path': sample_path.split()[0], 'depth_path': sample_path.split()[1]}
+        sample = {**sample, 
+                  'image_path': sample_path.split()[0], 
+                  'depth_path': sample_path.split()[1]}
 
         return sample
 
